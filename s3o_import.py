@@ -199,8 +199,8 @@ class s3o_piece(object):
                 bm.faces.layers.tex.verify()
                 for i, loop in enumerate(bm.faces[-1].loops):
                     uv = loop[uv_layer].uv
-                    uv[0] = self.verts[i].texu
-                    uv[1] = self.verts[i].texv
+                    uv[0] = self.verts[f[i]].texu
+                    uv[1] = self.verts[f[i]].texv
                     if tex is None or not tex.texture.image:
                         continue
                     ext = tex.texture.image.filepath[-4:]
