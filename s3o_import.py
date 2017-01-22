@@ -224,6 +224,7 @@ class s3o_piece(object):
         if(self.parent):
             self.ob.parent = self.parent.ob
         self.ob.location = [self.xoffset, self.yoffset, self.zoffset]
+        self.ob.rotation_mode = 'ZXY'
 
         # load children
         if(self.numChildren > 0):
