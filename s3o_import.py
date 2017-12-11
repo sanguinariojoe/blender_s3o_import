@@ -272,7 +272,11 @@ class s3o_vert(object):
 def load_s3o_file(s3o_filename, context, BATCH_LOAD=False):
     basename = os.path.basename(s3o_filename)
     objdir = os.path.dirname(s3o_filename)
-    texsdir = os.path.join(objdir, '../unittextures')
+    rootdir = objdir
+    while os.path.basename(rootdir).lower() != "objects3d":
+        rootdir = os.path.dirname(rootdir)
+    rootdir = os.path.dirname(rootdir)
+    texsdir = os.path.join(rootdir, 'unittextures')
 
     fhandle = open(s3o_filename, "rb")
 
