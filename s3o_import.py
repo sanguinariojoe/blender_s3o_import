@@ -328,7 +328,7 @@ def load_s3o_file(s3o_filename, context, BATCH_LOAD=False):
         mtex.diffuse_color_factor = 1.0
         mtex.mapping = 'FLAT'
     if(header.texture2):
-        fname = find_in_folder(texsdir, header.texture1)
+        fname = find_in_folder(texsdir, header.texture2)
         image = bpy.data.images.load(os.path.join(texsdir, fname))
         tex = bpy.data.textures.new(basename + '.alpha', type='IMAGE')
         tex.image = image
