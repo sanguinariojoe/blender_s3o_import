@@ -54,6 +54,28 @@ def read_string(fhandle, offset):
     return string
 
 
+def find_in_folder(folder, name):
+    """Case insensitive file/folder search tool
+    
+    Parameters
+    ==========
+    
+    folder : string
+        Folder where the file should be looked for
+    name : string
+        Name of the file (case will be ignored)
+
+    Returns
+    =======
+
+    filename : string
+        The file name (case sensitive), None if the file cannot be found.
+    """
+    for filename in os.listdir(folder):
+        if filename.lower() == name.lower():
+            return filename
+
+
 class s3o_header(object):
     binary_format = "<12sI5f4I"
 
@@ -276,7 +298,7 @@ def load_s3o_file(s3o_filename, context, BATCH_LOAD=False):
     while os.path.basename(rootdir).lower() != "objects3d":
         rootdir = os.path.dirname(rootdir)
     rootdir = os.path.dirname(rootdir)
-    texsdir = os.path.join(rootdir, 'unittextures')
+    texsdir = os.path.join(rootdir, find_in_folder(rootdir, 'unittextures'))
 
     fhandle = open(s3o_filename, "rb")
 
@@ -294,7 +316,8 @@ def load_s3o_file(s3o_filename, context, BATCH_LOAD=False):
     mat.alpha = 1.0
     mat.emit = 0.0
     if(header.texture1):
-        image = bpy.data.images.load(os.path.join(texsdir, header.texture1))
+        fname = find_in_folder(texsdir, header.texture1)
+        image = bpy.data.images.load(os.path.join(texsdir, fname))
         tex = bpy.data.textures.new(basename + '.color', type='IMAGE')
         tex.image = image
         mtex = mat.texture_slots.add()
@@ -305,7 +328,8 @@ def load_s3o_file(s3o_filename, context, BATCH_LOAD=False):
         mtex.diffuse_color_factor = 1.0
         mtex.mapping = 'FLAT'
     if(header.texture2):
-        image = bpy.data.images.load(os.path.join(texsdir, header.texture2))
+        fname = find_in_folder(texsdir, header.texture1)
+        image = bpy.data.images.load(os.path.join(texsdir, fname))
         tex = bpy.data.textures.new(basename + '.alpha', type='IMAGE')
         tex.image = image
         mtex = mat.texture_slots.add()
