@@ -14,9 +14,9 @@
 
 bl_info = {
     "name": "Import Spring S3O (.s3o)",
-    "author": "Jez Kabanov and Jose Luis Cercos-Pita <jlcercos@gmail.com>",
-    "version": (0, 6, 0),
-    "blender": (2, 7, 4),
+    "author": "Jez Kabanov and Jose Luis Cercos-Pita <jlcercos@gmail.com> with kludgy update by Darloth",
+    "version": (0, 7, 0),
+    "blender": (2, 80, 0),
     "location": "File > Import > Spring S3O (.s3o)",
     "description": "Import a file in the Spring S3O format",
     "warning": "",
@@ -30,6 +30,7 @@ import bpy, bmesh
 from mathutils import Vector
 # ImportHelper is a helper class, defines filename and invoke() function which calls the file selector
 from bpy_extras.io_utils import ImportHelper
+from bpy_extras.node_shader_utils import PrincipledBSDFWrapper
 
 import os
 import sys
@@ -209,7 +210,7 @@ class s3o_piece(object):
             self.ob.name = self.name
         else:
             bm = bmesh.new()
-            tex = material.texture_slots[0]
+#            tex = material.texture_slots[0]
             for v in self.verts:
                 bm.verts.new((v.xpos, v.ypos, v.zpos))
                 bm.verts.ensure_lookup_table()
@@ -218,23 +219,26 @@ class s3o_piece(object):
                 bm.faces.new([bm.verts[i] for i in f])
                 bm.faces.ensure_lookup_table()
                 uv_layer = bm.loops.layers.uv.verify()
-                bm.faces.layers.tex.verify()
+#                bm.faces.layers.tex.verify()
                 for i, loop in enumerate(bm.faces[-1].loops):
                     uv = loop[uv_layer].uv
                     uv[0] = self.verts[f[i]].texu
                     uv[1] = self.verts[f[i]].texv
-                    if tex is None or not tex.texture.image:
-                        continue
-                    ext = tex.texture.image.filepath[-4:]
-                    if ext != '.dds' and ext != '.DDS':
-                        uv[1] = 1.0 - uv[1]
+#                    if tex is None or not tex.texture.image:
+                    continue
+#  The thing is, I don't know how to get this info in 2.8 anymore.  So I'm hoping we don't need it.
+#                    ext = tex.texture.image.filepath[-4:]
+#                    if ext != '.dds' and ext != '.DDS':
+#                        uv[1] = 1.0 - uv[1]
 
             self.mesh = bpy.data.meshes.new(self.name)
             bm.to_mesh(self.mesh)
             self.ob = bpy.data.objects.new(self.name, self.mesh)
-            bpy.context.scene.objects.link(self.ob)
+            newCollection = bpy.data.collections.new(self.name)
+            bpy.context.scene.collection.children.link(newCollection)
+            newCollection.objects.link(self.ob)
             bpy.context.scene.update()
-            bpy.context.scene.objects.active = self.ob
+            self.ob.select_set(True)
             bpy.ops.object.shade_smooth()
 
             matidx = len(self.ob.data.materials)
@@ -305,41 +309,75 @@ def load_s3o_file(s3o_filename, context, BATCH_LOAD=False):
     header = s3o_header()
     header.load(fhandle)
 
-    mat = bpy.data.materials.new(name=basename + '.mat')
-    mat.diffuse_color = (1.0, 1.0, 1.0)
-    mat.diffuse_shader = 'LAMBERT'
-    mat.diffuse_intensity = 1.0
-    mat.specular_color = (1.0, 1.0, 1.0)
-    mat.specular_shader = 'COOKTORR'
-    mat.specular_intensity = 0.5
-    mat.ambient = 1.0
-    mat.alpha = 1.0
-    mat.emit = 0.0
+    mat = bpy.data.materials.new(name="Material")
+    mat.use_nodes = True
+    principled = mat.node_tree.nodes["Principled BSDF"]
+    principled.inputs['Base Color'].default_value = (1.0, 1.0, 1.0, 1.0)
+    if(header.texture1 or header.texture2):
+        # set up a single UV mapping node and plug texture coordinate UV map into it.
+        mappingNode = mat.node_tree.nodes.new('ShaderNodeMapping')
+        
+        texCoordNode = mat.node_tree.nodes.new('ShaderNodeTexCoord')
+        mat.node_tree.links.new(mappingNode.inputs['Vector'], texCoordNode.outputs['UV'])
+    
     if(header.texture1):
+        #load diffuse texture, plug in UV mapping, link to base color.
         fname = find_in_folder(texsdir, header.texture1)
         image = bpy.data.images.load(os.path.join(texsdir, fname))
-        tex = bpy.data.textures.new(basename + '.color', type='IMAGE')
-        tex.image = image
-        mtex = mat.texture_slots.add()
-        mtex.texture = tex
-        mtex.texture_coords = 'UV'
-        mtex.uv_layer = 'UVMap'
-        mtex.use_map_color_diffuse = True 
-        mtex.diffuse_color_factor = 1.0
-        mtex.mapping = 'FLAT'
+        texNode = mat.node_tree.nodes.new('ShaderNodeTexImage')
+        texNode.image = image
+        mat.node_tree.links.new(principled.inputs['Base Color'], texNode.outputs['Color'])
+        mat.node_tree.links.new(texNode.inputs['Vector'], mappingNode.outputs['Vector'])
+        
     if(header.texture2):
-        fname = find_in_folder(texsdir, header.texture2)
-        image = bpy.data.images.load(os.path.join(texsdir, fname))
-        tex = bpy.data.textures.new(basename + '.alpha', type='IMAGE')
-        tex.image = image
-        mtex = mat.texture_slots.add()
-        mtex.texture = tex
-        mtex.texture_coords = 'UV'
-        mtex.uv_layer = 'UVMap'
-        mtex.use_map_color_diffuse = False 
-        mtex.use_map_specular = True
-        mtex.specular_factor = 1.0
-        mtex.mapping = 'FLAT'
+        #load specular texture, plug in same UV map, set to non colour data and link to specularity.
+        fname2 = find_in_folder(texsdir, header.texture2)
+        image2 = bpy.data.images.load(os.path.join(texsdir, fname2))
+        specTexNode = mat.node_tree.nodes.new('ShaderNodeTexImage')
+        specTexNode.color_space = 'NONE'
+        specTexNode.image = image2
+        mat.node_tree.links.new(specTexNode.inputs['Vector'], mappingNode.outputs['Vector'])
+        mat.node_tree.links.new(principled.inputs['Specular'], specTexNode.outputs['Color'])
+        
+        
+        
+
+#    Old 2.79 material loading setup.
+#    mat = bpy.data.materials.new(name=basename + '.mat')
+#    mat.diffuse_color = (1.0, 1.0, 1.0)
+#    mat.diffuse_shader = 'LAMBERT'
+#    mat.diffuse_intensity = 1.0
+#    mat.specular_color = (1.0, 1.0, 1.0)
+#    mat.specular_shader = 'COOKTORR'
+#    mat.specular_intensity = 0.5
+#    mat.ambient = 1.0
+#    mat.alpha = 1.0
+#    mat.emit = 0.0
+#    if(header.texture1):
+#        fname = find_in_folder(texsdir, header.texture1)
+#        image = bpy.data.images.load(os.path.join(texsdir, fname))
+#        tex = bpy.data.textures.new(basename + '.color', type='IMAGE')
+#        tex.image = image
+#        mtex = mat.texture_slots.add()
+#        mtex.texture = tex
+#        mtex.texture_coords = 'UV'
+#        mtex.uv_layer = 'UVMap'
+#        mtex.use_map_color_diffuse = True 
+#        mtex.diffuse_color_factor = 1.0
+#        mtex.mapping = 'FLAT'
+#    if(header.texture2):
+#        fname = find_in_folder(texsdir, header.texture2)
+#        image = bpy.data.images.load(os.path.join(texsdir, fname))
+#        tex = bpy.data.textures.new(basename + '.alpha', type='IMAGE')
+#        tex.image = image
+#        mtex = mat.texture_slots.add()
+#        mtex.texture = tex
+#        mtex.texture_coords = 'UV'
+#        mtex.uv_layer = 'UVMap'
+#        mtex.use_map_color_diffuse = False 
+#        mtex.use_map_specular = True
+#        mtex.specular_factor = 1.0
+#        mtex.mapping = 'FLAT'
 
     rootPiece = s3o_piece()
     rootPiece.load(fhandle, header.rootPieceOffset, mat)
@@ -392,11 +430,11 @@ def menu_func_import(self, context):
 
 def register():
     bpy.utils.register_class(ImportS3O)
-    bpy.types.INFO_MT_file_import.append(menu_func_import)
+    bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
 
 def unregister():
     bpy.utils.unregister_class(ImportS3O)
-    bpy.types.INFO_MT_file_import.remove(menu_func_import)
+    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
 
 # This allows you to run the script directly from blenders text editor
 # to test the addon without having to install it.
