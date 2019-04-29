@@ -14,9 +14,9 @@
 
 bl_info = {
     "name": "Import Spring S3O (.s3o)",
-    "author": "Jez Kabanov and Jose Luis Cercos-Pita <jlcercos@gmail.com>",
-    "version": (0, 6, 0),
-    "blender": (2, 7, 4),
+    "author": "Jez Kabanov and Jose Luis Cercos-Pita <jlcercos@gmail.com> and Darloth",
+    "version": (0, 7, 0),
+    "blender": (2, 80, 0),
     "location": "File > Import > Spring S3O (.s3o)",
     "description": "Import a file in the Spring S3O format",
     "warning": "",
@@ -209,7 +209,6 @@ class s3o_piece(object):
             self.ob.name = self.name
         else:
             bm = bmesh.new()
-            tex = material.texture_slots[0]
             for v in self.verts:
                 bm.verts.new((v.xpos, v.ypos, v.zpos))
                 bm.verts.ensure_lookup_table()
@@ -218,23 +217,27 @@ class s3o_piece(object):
                 bm.faces.new([bm.verts[i] for i in f])
                 bm.faces.ensure_lookup_table()
                 uv_layer = bm.loops.layers.uv.verify()
-                bm.faces.layers.tex.verify()
                 for i, loop in enumerate(bm.faces[-1].loops):
                     uv = loop[uv_layer].uv
                     uv[0] = self.verts[f[i]].texu
                     uv[1] = self.verts[f[i]].texv
-                    if tex is None or not tex.texture.image:
-                        continue
-                    ext = tex.texture.image.filepath[-4:]
-                    if ext != '.dds' and ext != '.DDS':
-                        uv[1] = 1.0 - uv[1]
 
             self.mesh = bpy.data.meshes.new(self.name)
             bm.to_mesh(self.mesh)
             self.ob = bpy.data.objects.new(self.name, self.mesh)
-            bpy.context.scene.objects.link(self.ob)
+            try:
+                collection = bpy.data.collections.new(self.name)
+                bpy.context.scene.collection.children.link(collection)
+                collection.objects.link(self.ob)
+            except AttributeError:
+                # Blender < 2.80
+                bpy.context.scene.objects.link(self.ob)
             bpy.context.scene.update()
-            bpy.context.scene.objects.active = self.ob
+            try:
+                self.ob.select_set(True)
+            except AttributeError:
+                # Blender < 2.80
+                bpy.context.scene.objects.active = self.ob                
             bpy.ops.object.shade_smooth()
 
             matidx = len(self.ob.data.materials)
@@ -291,6 +294,85 @@ class s3o_vert(object):
         self.texv = data[7]
 
 
+def new_material_legacy(tex1, tex2, texsdir, name="Material"):
+    mat = bpy.data.materials.new(name=name + '.mat')
+    mat.diffuse_color = (1.0, 1.0, 1.0)
+    mat.diffuse_shader = 'LAMBERT'
+    mat.diffuse_intensity = 1.0
+    mat.specular_color = (1.0, 1.0, 1.0)
+    mat.specular_shader = 'COOKTORR'
+    mat.specular_intensity = 0.5
+    mat.ambient = 1.0
+    mat.alpha = 1.0
+    mat.emit = 0.0
+    if(tex1):
+        fname = find_in_folder(texsdir, tex1)
+        image = bpy.data.images.load(os.path.join(texsdir, fname))
+        tex = bpy.data.textures.new(name + '.color', type='IMAGE')
+        tex.image = image
+        mtex = mat.texture_slots.add()
+        mtex.texture = tex
+        mtex.texture_coords = 'UV'
+        mtex.uv_layer = 'UVMap'
+        mtex.use_map_color_diffuse = True 
+        mtex.diffuse_color_factor = 1.0
+        mtex.mapping = 'FLAT'
+    if(tex2):
+        fname = find_in_folder(texsdir, tex2)
+        image = bpy.data.images.load(os.path.join(texsdir, fname))
+        tex = bpy.data.textures.new(name + '.alpha', type='IMAGE')
+        tex.image = image
+        mtex = mat.texture_slots.add()
+        mtex.texture = tex
+        mtex.texture_coords = 'UV'
+        mtex.uv_layer = 'UVMap'
+        mtex.use_map_color_diffuse = False 
+        mtex.use_map_specular = True
+        mtex.specular_factor = 1.0
+        mtex.mapping = 'FLAT'
+
+    return mat
+
+
+def new_material(tex1, tex2, texsdir, name="Material"):
+    # Check if we should fallback to legacy mode
+    major, minor, _ = bpy.app.version
+    if major == 2 and minor < 80:
+        return new_material_legacy(tex1, tex2, texsdir, name)
+
+    mat = bpy.data.materials.new(name=name + '.mat')
+    mat.use_nodes = True
+    principled = mat.node_tree.nodes["Principled BSDF"]
+    principled.inputs['Base Color'].default_value = (1.0, 1.0, 1.0, 1.0)
+    if(tex1 or tex2):
+        # set up a single UV mapping node and plug texture coordinate UV map into it.
+        mapping_node = mat.node_tree.nodes.new('ShaderNodeMapping')
+
+        tex_coord_node = mat.node_tree.nodes.new('ShaderNodeTexCoord')
+        mat.node_tree.links.new(mapping_node.inputs['Vector'], tex_coord_node.outputs['UV'])
+    
+    if(tex1):
+        #load diffuse texture, plug in UV mapping, link to base color.
+        fname = find_in_folder(texsdir, tex1)
+        image = bpy.data.images.load(os.path.join(texsdir, fname))
+        tex_node = mat.node_tree.nodes.new('ShaderNodeTexImage')
+        tex_node.image = image
+        mat.node_tree.links.new(principled.inputs['Base Color'], tex_node.outputs['Color'])
+        mat.node_tree.links.new(tex_node.inputs['Vector'], mapping_node.outputs['Vector'])
+        
+    if(tex2):
+        #load specular texture, plug in same UV map, set to non colour data and link to specularity.
+        fname = find_in_folder(texsdir, tex2)
+        image = bpy.data.images.load(os.path.join(texsdir, fname))
+        tex_node = mat.node_tree.nodes.new('ShaderNodeTexImage')
+        tex_node.color_space = 'NONE'
+        tex_node.image = image
+        mat.node_tree.links.new(principled.inputs['Specular'], tex_node.outputs['Color'])
+        mat.node_tree.links.new(tex_node.inputs['Vector'], mapping_node.outputs['Vector'])
+
+    return mat
+
+
 def load_s3o_file(s3o_filename, context, BATCH_LOAD=False):
     basename = os.path.basename(s3o_filename)
     objdir = os.path.dirname(s3o_filename)
@@ -305,41 +387,7 @@ def load_s3o_file(s3o_filename, context, BATCH_LOAD=False):
     header = s3o_header()
     header.load(fhandle)
 
-    mat = bpy.data.materials.new(name=basename + '.mat')
-    mat.diffuse_color = (1.0, 1.0, 1.0)
-    mat.diffuse_shader = 'LAMBERT'
-    mat.diffuse_intensity = 1.0
-    mat.specular_color = (1.0, 1.0, 1.0)
-    mat.specular_shader = 'COOKTORR'
-    mat.specular_intensity = 0.5
-    mat.ambient = 1.0
-    mat.alpha = 1.0
-    mat.emit = 0.0
-    if(header.texture1):
-        fname = find_in_folder(texsdir, header.texture1)
-        image = bpy.data.images.load(os.path.join(texsdir, fname))
-        tex = bpy.data.textures.new(basename + '.color', type='IMAGE')
-        tex.image = image
-        mtex = mat.texture_slots.add()
-        mtex.texture = tex
-        mtex.texture_coords = 'UV'
-        mtex.uv_layer = 'UVMap'
-        mtex.use_map_color_diffuse = True 
-        mtex.diffuse_color_factor = 1.0
-        mtex.mapping = 'FLAT'
-    if(header.texture2):
-        fname = find_in_folder(texsdir, header.texture2)
-        image = bpy.data.images.load(os.path.join(texsdir, fname))
-        tex = bpy.data.textures.new(basename + '.alpha', type='IMAGE')
-        tex.image = image
-        mtex = mat.texture_slots.add()
-        mtex.texture = tex
-        mtex.texture_coords = 'UV'
-        mtex.uv_layer = 'UVMap'
-        mtex.use_map_color_diffuse = False 
-        mtex.use_map_specular = True
-        mtex.specular_factor = 1.0
-        mtex.mapping = 'FLAT'
+    mat = new_material(header.texture1, header.texture2, texsdir, name=basename)
 
     rootPiece = s3o_piece()
     rootPiece.load(fhandle, header.rootPieceOffset, mat)
@@ -356,6 +404,7 @@ def load_s3o_file(s3o_filename, context, BATCH_LOAD=False):
 
     fhandle.close()
     return
+
 
 class ImportS3O(bpy.types.Operator, ImportHelper):
     """Import a file in the Spring S3O format (.s3o)"""
@@ -390,13 +439,24 @@ class ImportS3O(bpy.types.Operator, ImportHelper):
 def menu_func_import(self, context):
     self.layout.operator(ImportS3O.bl_idname, text="Spring (.s3o)")
 
+
 def register():
     bpy.utils.register_class(ImportS3O)
-    bpy.types.INFO_MT_file_import.append(menu_func_import)
+    try:
+        bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
+    except AttributeError:
+        # Blender < 2.80
+        bpy.types.INFO_MT_file_import.append(menu_func_import)
+
 
 def unregister():
     bpy.utils.unregister_class(ImportS3O)
-    bpy.types.INFO_MT_file_import.remove(menu_func_import)
+    try:
+        bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
+    except AttributeError:
+        # Blender < 2.80
+        bpy.types.INFO_MT_file_import.remove(menu_func_import)
+
 
 # This allows you to run the script directly from blenders text editor
 # to test the addon without having to install it.
