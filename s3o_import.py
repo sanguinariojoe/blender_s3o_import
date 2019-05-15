@@ -54,6 +54,39 @@ def read_string(fhandle, offset):
     return string
 
 
+def folder_root(folder, name):
+    """Case insensitive recursive folder root extraction.
+
+    This function returns the parent path which contains the desired subfolder.
+    For instance, providing the path:
+    
+    /home/user/.spring/.spring/games/s44.sdd/objects3d/GER/
+
+    and the target folder name "objects3d", it returns:
+
+    /home/user/.spring/.spring/games/s44.sdd/
+
+    Parameters
+    ==========
+    
+    folder : string
+        Folder where the parent should be looked for
+    name : string
+        Name of the file/folder which root is desired (case will be ignored)
+
+    Returns
+    =======
+
+    root : string
+        The folder path (case sensitive), None if it is not possible to find the
+        root folder in the provided path.
+    """
+    index = folder.lower().find(name.lower())
+    if index == -1:
+        return None
+    return folder[:index]
+
+
 def find_in_folder(folder, name):
     """Case insensitive file/folder search tool
     
@@ -74,6 +107,7 @@ def find_in_folder(folder, name):
     for filename in os.listdir(folder):
         if filename.lower() == name.lower():
             return filename
+    return None
 
 
 class s3o_header(object):
@@ -305,7 +339,7 @@ def new_material_legacy(tex1, tex2, texsdir, name="Material"):
     mat.ambient = 1.0
     mat.alpha = 1.0
     mat.emit = 0.0
-    if(tex1):
+    if tex1 and find_in_folder(texsdir, tex1):
         fname = find_in_folder(texsdir, tex1)
         image = bpy.data.images.load(os.path.join(texsdir, fname))
         tex = bpy.data.textures.new(name + '.color', type='IMAGE')
@@ -317,7 +351,7 @@ def new_material_legacy(tex1, tex2, texsdir, name="Material"):
         mtex.use_map_color_diffuse = True 
         mtex.diffuse_color_factor = 1.0
         mtex.mapping = 'FLAT'
-    if(tex2):
+    if tex2 and find_in_folder(texsdir, tex2):
         fname = find_in_folder(texsdir, tex2)
         image = bpy.data.images.load(os.path.join(texsdir, fname))
         tex = bpy.data.textures.new(name + '.alpha', type='IMAGE')
@@ -349,9 +383,10 @@ def new_material(tex1, tex2, texsdir, name="Material"):
         mapping_node = mat.node_tree.nodes.new('ShaderNodeMapping')
 
         tex_coord_node = mat.node_tree.nodes.new('ShaderNodeTexCoord')
-        mat.node_tree.links.new(mapping_node.inputs['Vector'], tex_coord_node.outputs['UV'])
+        mat.node_tree.links.new(mapping_node.inputs['Vector'],
+                                tex_coord_node.outputs['UV'])
     
-    if(tex1):
+    if tex1 and find_in_folder(texsdir, tex1):
         #load diffuse texture, plug in UV mapping, link to base color.
         fname = find_in_folder(texsdir, tex1)
         image = bpy.data.images.load(os.path.join(texsdir, fname))
@@ -360,7 +395,7 @@ def new_material(tex1, tex2, texsdir, name="Material"):
         mat.node_tree.links.new(principled.inputs['Base Color'], tex_node.outputs['Color'])
         mat.node_tree.links.new(tex_node.inputs['Vector'], mapping_node.outputs['Vector'])
         
-    if(tex2):
+    if tex2 and find_in_folder(texsdir, tex2):
         #load specular texture, plug in same UV map, set to non colour data and link to specularity.
         fname = find_in_folder(texsdir, tex2)
         image = bpy.data.images.load(os.path.join(texsdir, fname))
@@ -376,11 +411,11 @@ def new_material(tex1, tex2, texsdir, name="Material"):
 def load_s3o_file(s3o_filename, context, BATCH_LOAD=False):
     basename = os.path.basename(s3o_filename)
     objdir = os.path.dirname(s3o_filename)
-    rootdir = objdir
-    while os.path.basename(rootdir).lower() != "objects3d":
-        rootdir = os.path.dirname(rootdir)
-    rootdir = os.path.dirname(rootdir)
-    texsdir = os.path.join(rootdir, find_in_folder(rootdir, 'unittextures'))
+    rootdir = folder_root(objdir, "objects3d")
+    if rootdir is None:
+        texsdir = objdir
+    else:
+        texsdir = os.path.join(rootdir, find_in_folder(rootdir, 'unittextures'))
 
     fhandle = open(s3o_filename, "rb")
 
