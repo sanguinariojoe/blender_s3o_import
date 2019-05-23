@@ -15,7 +15,7 @@
 bl_info = {
     "name": "Import Spring S3O (.s3o)",
     "author": "Jez Kabanov and Jose Luis Cercos-Pita <jlcercos@gmail.com> and Darloth",
-    "version": (0, 7, 0),
+    "version": (0, 7, 1),
     "blender": (2, 80, 0),
     "location": "File > Import > Spring S3O (.s3o)",
     "description": "Import a file in the Spring S3O format",
@@ -266,13 +266,21 @@ class s3o_piece(object):
             except AttributeError:
                 # Blender < 2.80
                 bpy.context.scene.objects.link(self.ob)
-            bpy.context.scene.update()
+            try:
+                bpy.context.scene.update()
+            except AttributeError:
+                # Blender > 2.80
+                # The scene doesn't seem to need specifically updating in the latest 2.80
+                pass
             try:
                 self.ob.select_set(True)
             except AttributeError:
                 # Blender < 2.80
                 bpy.context.scene.objects.active = self.ob                
             bpy.ops.object.shade_smooth()
+            if hasattr(bpy.context.object.data, "use_auto_smooth"):
+                bpy.context.object.data.use_auto_smooth = True
+                bpy.context.object.data.auto_smooth_angle = 0.785398 # 45 degrees, better than 30 for low poly stuff.
 
             matidx = len(self.ob.data.materials)
             self.ob.data.materials.append(material) 
@@ -390,21 +398,42 @@ def new_material(tex1, tex2, texsdir, name="Material"):
         #load diffuse texture, plug in UV mapping, link to base color.
         fname = find_in_folder(texsdir, tex1)
         image = bpy.data.images.load(os.path.join(texsdir, fname))
+        image.alpha_mode = 'CHANNEL_PACKED' #spring uses alpha as teamcolor
         tex_node = mat.node_tree.nodes.new('ShaderNodeTexImage')
         tex_node.image = image
         mat.node_tree.links.new(principled.inputs['Base Color'], tex_node.outputs['Color'])
         mat.node_tree.links.new(tex_node.inputs['Vector'], mapping_node.outputs['Vector'])
         
     if tex2 and find_in_folder(texsdir, tex2):
-        #load specular texture, plug in same UV map, set to non colour data and link to specularity.
+        # load reflectivity / emission / data texture, plug in same UV map, 
+        # set to non colour data and link to appropriate data.
         fname = find_in_folder(texsdir, tex2)
         image = bpy.data.images.load(os.path.join(texsdir, fname))
+        # The alpha for this file is one bit, but is actual true alpha and 
+        # applies to both textures once ingame
+        image.alpha_mode = 'STRAIGHT' 
+        image.colorspace_settings.name = 'Non-Color'
+        image.colorspace_settings.is_data = True
+        
+        # setup texture node associated with new image.
         tex_node = mat.node_tree.nodes.new('ShaderNodeTexImage')
-        tex_node.color_space = 'NONE'
         tex_node.image = image
-        mat.node_tree.links.new(principled.inputs['Specular'], tex_node.outputs['Color'])
+        #old pre May ~13th, when tex nodes could still have colour spaces associated.
+        #tex_node.color_space = 'NONE' 
+        
+        # add RGB separation node and hook up associated channels and alpha channel.  
+        # R is emission, G is reflectivity (inverse roughness) and 
+        # B is undefined by default.
+        split_rgb_node = mat.node_tree.nodes.new('ShaderNodeSeparateRGB')
+        mat.node_tree.links.new(split_rgb_node.inputs['Image'], tex_node.outputs['Color'])
+        
+        mat.node_tree.links.new(principled.inputs['Emission'], split_rgb_node.outputs['R'])
+        
+        inverter_node = mat.node_tree.nodes.new('ShaderNodeInvert')
+        mat.node_tree.links.new(principled.inputs['Roughness'], inverter_node.outputs['Color'])
+        mat.node_tree.links.new(inverter_node.inputs['Color'], split_rgb_node.outputs['G'])
+        
         mat.node_tree.links.new(tex_node.inputs['Vector'], mapping_node.outputs['Vector'])
-
     return mat
 
 
