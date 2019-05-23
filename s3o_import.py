@@ -270,7 +270,7 @@ class s3o_piece(object):
                 bpy.context.scene.update()
             except AttributeError:
                 # Blender > 2.80
-                # TODO: don't know how to update the scene!
+                # The scene doesn't seem to need specifically updating in the latest 2.80
                 pass
             try:
                 self.ob.select_set(True)
@@ -405,19 +405,25 @@ def new_material(tex1, tex2, texsdir, name="Material"):
         mat.node_tree.links.new(tex_node.inputs['Vector'], mapping_node.outputs['Vector'])
         
     if tex2 and find_in_folder(texsdir, tex2):
-        #load reflectivity / emission / data texture, plug in same UV map, set to non colour data and link to appropriate data.
+        # load reflectivity / emission / data texture, plug in same UV map, 
+        # set to non colour data and link to appropriate data.
         fname = find_in_folder(texsdir, tex2)
         image = bpy.data.images.load(os.path.join(texsdir, fname))
-        image.alpha_mode = 'STRAIGHT' # The alpha for this file is one bit, but is actual true alpha and applies to both textures once ingame
+        # The alpha for this file is one bit, but is actual true alpha and 
+        # applies to both textures once ingame
+        image.alpha_mode = 'STRAIGHT' 
         image.colorspace_settings.name = 'Non-Color'
         image.colorspace_settings.is_data = True
         
         # setup texture node associated with new image.
         tex_node = mat.node_tree.nodes.new('ShaderNodeTexImage')
         tex_node.image = image
-        #tex_node.color_space = 'NONE' #old pre May ~20th, when tex nodes could still have colour spaces associated.
+        #old pre May ~13th, when tex nodes could still have colour spaces associated.
+        #tex_node.color_space = 'NONE' 
         
-        #add RGB separation node and hook up associated channels and alpha channel.  R is emission, G is reflectivity (inverse roughness) and B is undefined by default.
+        # add RGB separation node and hook up associated channels and alpha channel.  
+        # R is emission, G is reflectivity (inverse roughness) and 
+        # B is undefined by default.
         split_rgb_node = mat.node_tree.nodes.new('ShaderNodeSeparateRGB')
         mat.node_tree.links.new(split_rgb_node.inputs['Image'], tex_node.outputs['Color'])
         
