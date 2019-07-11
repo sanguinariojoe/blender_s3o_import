@@ -278,9 +278,10 @@ class s3o_piece(object):
                 # Blender < 2.80
                 bpy.context.scene.objects.active = self.ob                
             bpy.ops.object.shade_smooth()
-            if hasattr(bpy.context.object.data, "use_auto_smooth"):
-                bpy.context.object.data.use_auto_smooth = True
-                bpy.context.object.data.auto_smooth_angle = 0.785398 # 45 degrees, better than 30 for low poly stuff.
+            if bpy.context.object is not None: # NoneType objects can get here recently.
+                if hasattr(bpy.context.object.data, "use_auto_smooth"):
+                    bpy.context.object.data.use_auto_smooth = True
+                    bpy.context.object.data.auto_smooth_angle = 0.785398 # 45 degrees, better than 30 for low poly stuff.
 
             matidx = len(self.ob.data.materials)
             self.ob.data.materials.append(material) 
