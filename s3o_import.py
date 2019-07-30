@@ -402,7 +402,16 @@ def new_material(tex1, tex2, texsdir, name="Material"):
         image.alpha_mode = 'CHANNEL_PACKED' #spring uses alpha as teamcolor
         tex_node = mat.node_tree.nodes.new('ShaderNodeTexImage')
         tex_node.image = image
-        mat.node_tree.links.new(principled.inputs['Base Color'], tex_node.outputs['Color'])
+
+        # apply green as default self teamcolor
+        mix_node = mat.node_tree.nodes.new('ShaderNodeMixRGB')
+        mix_node.blend_type='MIX'
+
+        mix_node.inputs['Color2'].default_value = (0, 1.0, 0.0, 1.0)
+        mat.node_tree.links.new(mix_node.inputs['Color1'], tex_node.outputs['Color'])
+        mat.node_tree.links.new(mix_node.inputs['Fac'], tex_node.outputs['Alpha'])
+
+        mat.node_tree.links.new(principled.inputs['Base Color'], mix_node.outputs['Color'])
         mat.node_tree.links.new(tex_node.inputs['Vector'], mapping_node.outputs['Vector'])
         
     if tex2 and find_in_folder(texsdir, tex2):
