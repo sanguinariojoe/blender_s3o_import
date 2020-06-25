@@ -158,6 +158,47 @@ class s3o_header(object):
         return
 
 
+def remove_doubles(verts):
+    """I would say (J.L. Cercos-Pita aka SanguinarioJoe) this is an upspring
+    fault. Anyway, it is happening that the imported models have duplicated
+    vertices, i.e. vertices that are in the same exact position, and have the
+    same exact normal. It should be noticed that for the sake of the mesh
+    representation, those vertices can be merged.
+    Unfortunatelly, Blender is not dealing ok with such inconsistent mesh, so it
+    is correcting the normals after a wide variety of operations, like entering
+    in edit mode, or exporting the mesh.
+    Thus, this method is checking and merging the vertexes with the same
+    position AND NORMAL. It is also returning a dictionary to translate the
+    original vertice indexes onto the new ones
+    """
+    def find_vert(verts, vert):
+        def equal(a, b, tol=1E-6):
+            return abs(a - b) < tol
+        def equal_verts(a, b):
+            return equal(a.xpos, b.xpos) and \
+                   equal(a.ypos, b.ypos) and \
+                   equal(a.zpos, b.zpos) and \
+                   equal(a.xnormal, b.xnormal) and \
+                   equal(a.ynormal, b.ynormal) and \
+                   equal(a.znormal, b.znormal)
+        for i, v in enumerate(verts):
+            if equal_verts(v, vert):
+                return i
+        return None
+
+    new_verts = []
+    indexes = list(range(len(verts)))
+    for i,v in enumerate(verts):
+        j = find_vert(new_verts, v)
+        if j is None:
+            indexes[i] = len(new_verts)
+            new_verts.append(v)
+        else:
+            indexes[i] = j
+
+    return new_verts, indexes
+
+
 class s3o_piece(object):
     binary_format = "<10I3f"
 
@@ -211,6 +252,7 @@ class s3o_piece(object):
             vert = s3o_vert()
             vert.load(fhandle, self.vertsOffset + (i * struct.calcsize(vert.binary_format)))
             self.verts.append(vert)
+        self.verts, self.vertids = remove_doubles(self.verts)
 
         # load primitives
         fhandle.seek(self.vertTableOffset, os.SEEK_SET)
@@ -248,13 +290,13 @@ class s3o_piece(object):
                 bm.verts.ensure_lookup_table()
                 bm.verts[-1].normal = Vector((v.xnormal, v.ynormal, v.znormal))
             for f in self.faces:
-                bm.faces.new([bm.verts[i] for i in f])
+                bm.faces.new([bm.verts[self.vertids[i]] for i in f])
                 bm.faces.ensure_lookup_table()
                 uv_layer = bm.loops.layers.uv.verify()
                 for i, loop in enumerate(bm.faces[-1].loops):
                     uv = loop[uv_layer].uv
-                    uv[0] = self.verts[f[i]].texu
-                    uv[1] = self.verts[f[i]].texv
+                    uv[0] = self.verts[self.vertids[f[i]]].texu
+                    uv[1] = self.verts[self.vertids[f[i]]].texv
 
             self.mesh = bpy.data.meshes.new(self.name)
             bm.to_mesh(self.mesh)
@@ -276,12 +318,12 @@ class s3o_piece(object):
                 self.ob.select_set(True)
             except AttributeError:
                 # Blender < 2.80
-                bpy.context.scene.objects.active = self.ob                
+                bpy.context.scene.objects.active = self.ob
             bpy.ops.object.shade_smooth()
             if bpy.context.object is not None: # NoneType objects can get here recently.
                 if hasattr(bpy.context.object.data, "use_auto_smooth"):
-                    bpy.context.object.data.use_auto_smooth = True
-                    bpy.context.object.data.auto_smooth_angle = 0.785398 # 45 degrees, better than 30 for low poly stuff.
+                    bpy.context.object.data.use_auto_smooth = False
+                    # bpy.context.object.data.auto_smooth_angle = 0.785398 # 45 degrees, better than 30 for low poly stuff.
 
             matidx = len(self.ob.data.materials)
             self.ob.data.materials.append(material) 
