@@ -252,7 +252,8 @@ class s3o_piece(object):
             vert = s3o_vert()
             vert.load(fhandle, self.vertsOffset + (i * struct.calcsize(vert.binary_format)))
             self.verts.append(vert)
-        self.verts, self.vertids = remove_doubles(self.verts)
+        # We want to keep the original vertices because of the UVs information
+        self.unique_verts, self.vertids = remove_doubles(self.verts)
 
         # load primitives
         fhandle.seek(self.vertTableOffset, os.SEEK_SET)
@@ -285,7 +286,7 @@ class s3o_piece(object):
             self.ob.name = self.name
         else:
             bm = bmesh.new()
-            for v in self.verts:
+            for v in self.unique_verts:
                 bm.verts.new((v.xpos, v.ypos, v.zpos))
                 bm.verts.ensure_lookup_table()
                 bm.verts[-1].normal = Vector((v.xnormal, v.ynormal, v.znormal))
@@ -295,8 +296,8 @@ class s3o_piece(object):
                 uv_layer = bm.loops.layers.uv.verify()
                 for i, loop in enumerate(bm.faces[-1].loops):
                     uv = loop[uv_layer].uv
-                    uv[0] = self.verts[self.vertids[f[i]]].texu
-                    uv[1] = self.verts[self.vertids[f[i]]].texv
+                    uv[0] = self.verts[f[i]].texu
+                    uv[1] = self.verts[f[i]].texv
 
             self.mesh = bpy.data.meshes.new(self.name)
             bm.to_mesh(self.mesh)
