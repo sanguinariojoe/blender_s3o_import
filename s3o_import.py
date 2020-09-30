@@ -222,7 +222,7 @@ class s3o_piece(object):
     yoffset = 0.0
     zoffset = 0.0
 
-    def load(self, fhandle, offset, material):
+    def load(self, fhandle, offset, material, collection=None):
         fhandle.seek(offset, os.SEEK_SET)
         tmp_data = fhandle.read(struct.calcsize(self.binary_format))
         data = struct.unpack(self.binary_format, tmp_data)
@@ -291,6 +291,13 @@ class s3o_piece(object):
             bpy.ops.object.empty_add(type="PLAIN_AXES", location=(0, 0, 0))
             self.ob = bpy.context.active_object
             self.ob.name = self.name
+            try:
+                if collection is not None and \
+                   collection != bpy.context.scene.collection:
+                    bpy.context.scene.collection.objects.unlink(self.ob)
+                    collection.objects.link(self.ob)
+            except AttributeError:
+                pass
         else:
             bm = bmesh.new()
             for v in self.unique_verts:
@@ -316,8 +323,7 @@ class s3o_piece(object):
             bm.to_mesh(self.mesh)
             self.ob = bpy.data.objects.new(self.name, self.mesh)
             try:
-                collection = bpy.data.collections.new(self.name)
-                bpy.context.scene.collection.children.link(collection)
+                collection = collection or bpy.context.scene.collection
                 collection.objects.link(self.ob)
             except AttributeError:
                 # Blender < 2.80
@@ -362,7 +368,7 @@ class s3o_piece(object):
                 childOffset = data[0]
                 child = s3o_piece()
                 child.parent = self
-                child.load(fhandle, childOffset, material)
+                child.load(fhandle, childOffset, material, collection)
                 self.children.append(child)
                 fhandle.seek(offset, os.SEEK_SET)
         return
@@ -520,8 +526,15 @@ def load_s3o_file(s3o_filename, context, BATCH_LOAD=False):
 
     mat = new_material(header.texture1, header.texture2, texsdir, name=basename)
 
+    try:
+        collection = bpy.data.collections.new(basename)
+        bpy.context.scene.collection.children.link(collection)
+    except AttributeError:
+        # Blender < 2.80
+        collection = None
+
     rootPiece = s3o_piece()
-    rootPiece.load(fhandle, header.rootPieceOffset, mat)
+    rootPiece.load(fhandle, header.rootPieceOffset, mat, collection)
 
     # create collision sphere
     bpy.ops.object.empty_add(type="SPHERE",
