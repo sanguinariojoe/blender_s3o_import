@@ -279,6 +279,13 @@ class s3o_piece(object):
         else:
             raise TypeError('Unknown primitive type: ' + self.primitiveType)
 
+        try:
+            for obj in bpy.context.selected_objects:
+                obj.select_set(False)
+        except AttributeError:
+            # Blender < 2.80
+            bpy.ops.object.select_all(action='DESELECT')
+
         # if it has no verts or faces create an EMPTY instead
         if(self.numVerts == 0):
             bpy.ops.object.empty_add(type="PLAIN_AXES", location=(0, 0, 0))
@@ -291,7 +298,13 @@ class s3o_piece(object):
                 bm.verts.ensure_lookup_table()
                 bm.verts[-1].normal = Vector((v.xnormal, v.ynormal, v.znormal))
             for f in self.faces:
-                bm.faces.new([bm.verts[self.vertids[i]] for i in f])
+                try:
+                    bm.faces.new([bm.verts[self.vertids[i]] for i in f])
+                except ValueError:
+                    # Due to the removed vertices, degenerated faces would
+                    # become strictly invalid, using several times the same
+                    # vertex. We just simply ignore them
+                    pass
                 bm.faces.ensure_lookup_table()
                 uv_layer = bm.loops.layers.uv.verify()
                 for i, loop in enumerate(bm.faces[-1].loops):
@@ -317,6 +330,7 @@ class s3o_piece(object):
                 pass
             try:
                 self.ob.select_set(True)
+                bpy.context.view_layer.objects.active = self.ob
             except AttributeError:
                 # Blender < 2.80
                 bpy.context.scene.objects.active = self.ob
@@ -331,7 +345,7 @@ class s3o_piece(object):
 
             for face in self.mesh.polygons:
                 face.material_index = matidx
-    
+
         if(self.parent):
             self.ob.parent = self.parent.ob
         self.ob.location = [self.xoffset, self.yoffset, self.zoffset]
