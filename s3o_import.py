@@ -294,8 +294,13 @@ class s3o_piece(object):
             try:
                 if collection is not None and \
                    collection != bpy.context.scene.collection:
-                    bpy.context.scene.collection.objects.unlink(self.ob)
+                    for c in self.ob.users_collection:
+                        c.objects.unlink(self.ob)
                     collection.objects.link(self.ob)
+                    try:
+                        bpy.context.scene.collection.objects.unlink(self.ob)
+                    except RuntimeError:
+                        pass
             except AttributeError:
                 pass
         else:
