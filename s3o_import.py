@@ -491,7 +491,10 @@ def new_material(tex1, tex2, texsdir, name="Material"):
         # applies to both textures once ingame
         image.alpha_mode = 'STRAIGHT' 
         image.colorspace_settings.name = 'Non-Color'
-        image.colorspace_settings.is_data = True
+        try:
+            image.colorspace_settings.is_data = True
+        except AttributeError:
+            pass
         
         # setup texture node associated with new image.
         tex_node = mat.node_tree.nodes.new('ShaderNodeTexImage')
@@ -505,7 +508,24 @@ def new_material(tex1, tex2, texsdir, name="Material"):
         split_rgb_node = mat.node_tree.nodes.new('ShaderNodeSeparateRGB')
         mat.node_tree.links.new(split_rgb_node.inputs['Image'], tex_node.outputs['Color'])
         
-        mat.node_tree.links.new(principled.inputs['Emission'], split_rgb_node.outputs['R'])
+        if 'Emission' in principled.inputs:
+            mat.node_tree.links.new(principled.inputs['Emission'], split_rgb_node.outputs['R'])
+        else:
+            emission_node = mat.node_tree.nodes.new('ShaderNodeEmission')
+            mat.node_tree.links.new(emission_node.inputs['Color'], split_rgb_node.outputs['R'])
+            add_node = mat.node_tree.nodes.new('ShaderNodeAddShader')
+            output_node = None
+            for n in mat.node_tree.nodes:
+                if getattr(n, 'type', '') == 'OUTPUT_MATERIAL':
+                    output_node = n
+                    break
+            if output_node and output_node.inputs.get('Surface'):
+                for l in list(mat.node_tree.links):
+                    if l.to_socket == output_node.inputs['Surface']:
+                        mat.node_tree.links.remove(l)
+                mat.node_tree.links.new(add_node.outputs['Shader'], output_node.inputs['Surface'])
+            mat.node_tree.links.new(add_node.inputs[0], principled.outputs['BSDF'])
+            mat.node_tree.links.new(add_node.inputs[1], emission_node.outputs['Emission'])
         
         inverter_node = mat.node_tree.nodes.new('ShaderNodeInvert')
         mat.node_tree.links.new(principled.inputs['Roughness'], inverter_node.outputs['Color'])
